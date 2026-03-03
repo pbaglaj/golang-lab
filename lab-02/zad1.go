@@ -10,14 +10,6 @@ func main() {
 	source := rand.NewSource(time.Now().UnixNano())
 	r := rand.New(source)
 
-	boxes := [3]int{0, 0, 0}
-	winningIndex := r.Intn(3)
-	boxes[winningIndex] = 1
-
-	// fmt.Print("Wybierz pudełko (1-3): ")
-	// var input int
-	// _, err := fmt.Scanln(&input)
-
 	fmt.Print("Wybierz N ilość pudełek:")
 	var n int
 	_, err := fmt.Scanln(&n)
@@ -27,40 +19,69 @@ func main() {
 		return
 	}
 
-	fmt.Print("Wybierz pudełko (1-%d): ", n)
+	maxK := n - 2
+	fmt.Printf("Wybierz k ilość pudełek otwieranych przez prowadzącego (1-%d): ", maxK)
+	var k int
+	_, err = fmt.Scanln(&k)
+	if err != nil || k < 1 || k > maxK {
+		fmt.Printf("Błąd: Wybierz liczbę od 1 do %d\n", maxK)
+		return
+	}
+
+	boxes := make([]int, n)
+	winningIndex := r.Intn(n)
+	boxes[winningIndex] = 1
+
 	var input int
-	_, err := fmt.Scanln(&input)
+	fmt.Printf("Wybierz pudełko (1-%d): ", n)
+	_, err = fmt.Scanln(&input)
 
 	if err != nil || input < 1 || input > n {
-		fmt.Println("Błąd: Wybierz liczbę od 1 do", n)
+		fmt.Printf("Błąd: Wybierz liczbę od 1 do %d\n", n)
 
 		return
 	}
 
 	userIndex := input - 1
 
-	var openedByHost int
-	for i := 0; i < 3; i++ {
+	var availableToOpen []int
+	for i := 0; i < n; i++ {
 		if i != userIndex && i != winningIndex {
-			openedByHost = i
-			break
+			availableToOpen = append(availableToOpen, i)
 		}
 	}
 
-	fmt.Printf("\nWybrałeś pudełko nr %d.\n", input)
-	fmt.Printf("Prowadzący otwiera pudełko nr %d i pokazuje, że jest PUSTE!\n", openedByHost+1)
+	openedByHost := availableToOpen[:k]
 
-	fmt.Print("Czy chcesz zmienić swój wybór na ostatnie pozostałe pudełko? (t/n): ")
+	isOpen := make([]bool, n)
+	for _, box := range openedByHost {
+		isOpen[box] = true
+	}
+
+	fmt.Printf("\nWybrałeś pudełko nr %d.\n", input)
+	fmt.Print("Prowadzący otwiera pudełka nr: ")
+	for i, box := range openedByHost {
+		if i > 0 {
+			fmt.Print(", ")
+		}
+		fmt.Printf("%d", box+1)
+	}
+	fmt.Println(" i pokazuje, że są PUSTE!")
+
+	fmt.Print("Czy chcesz zmienić swój wybór na inne pozostałe pudełko? (t/n): ")
 	var decision string
 	fmt.Scanln(&decision)
 
 	if decision == "t" {
-		for i := 0; i < 3; i++ {
-			if i != userIndex && i != openedByHost {
-				userIndex = i
-				break
+		var remaining []int
+		for i := 0; i < n; i++ {
+			if i != userIndex && !isOpen[i] {
+				remaining = append(remaining, i)
 			}
 		}
+
+		// tutaj zmiana na wybranie przez uzytkownika spośród pozostałych pudełek?
+		userIndex = remaining[r.Intn(len(remaining))]
 		fmt.Printf("Zmieniłeś wybór na pudełko nr %d.\n", userIndex+1)
 	} else {
 		fmt.Println("Zostajesz przy swoim pierwotnym wyborze.")
