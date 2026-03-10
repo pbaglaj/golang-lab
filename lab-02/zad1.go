@@ -68,7 +68,14 @@ func main() {
 	}
 	fmt.Println(" i pokazuje, że są PUSTE!")
 
-	fmt.Print("Czy chcesz zmienić swój wybór na inne pozostałe pudełko? (t/n): ")
+	// Obliczenie prawdopodobieństw
+	stayProb := 1.0 / float64(n)
+	switchProb := (float64(n) - 1.0) / float64(n)
+
+	fmt.Printf("\nPrawdopodobieństwo wygranej przy pozostaniu:  %.4f\n", stayProb)
+	fmt.Printf("Prawdopodobieństwo wygranej przy zmianie:     %.4f\n", switchProb)
+
+	fmt.Print("\nCzy chcesz zmienić swój wybór na inne pozostałe pudełko? (t/n): ")
 	var decision string
 	fmt.Scanln(&decision)
 
