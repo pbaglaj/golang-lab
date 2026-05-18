@@ -19,18 +19,13 @@ type Participant struct {
 
 type ScoringStrategy func(scores []float64) float64
 
-// Funkcja nie modyfikuje oryginału, tworzy i zwraca nową kopię struktury
 func AddPerformanceToParticipant(p Participant, piece string, scores []float64) Participant {
-	// 1. Tworzymy nowy slice o odpowiedniej długości
 	newPerformances := make([]Performance, len(p.Performances), len(p.Performances)+1)
 
-	// 2. Kopiujemy zawartość ze starego do nowego (izolacja pamięci)
 	copy(newPerformances, p.Performances)
 
-	// 3. Dodajemy nowy element do NOWEGO slice'a
 	newPerformances = append(newPerformances, Performance{Piece: piece, Scores: scores})
 
-	// 4. Tworzymy nową strukturę i zwracamy ją
 	newP := p
 	newP.Performances = newPerformances
 	return newP
