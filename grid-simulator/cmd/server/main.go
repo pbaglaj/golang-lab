@@ -89,6 +89,26 @@ func main() {
 	// Start Loggera (posiada własną obsługę WaitGroup)
 	logger.Start(ctx)
 
+	// Start aktorów energetycznych - od teraz komunikacja Hub<->źródła/bateria odbywa się
+	// wyłącznie przez kanały. Każdy podmiot ma własną gorutynę z pętlą select.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		windFarm.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		coalPlant.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		battery.Run(ctx)
+	}()
+
 	// Start Predictora
 	wg.Add(1)
 	go func() {

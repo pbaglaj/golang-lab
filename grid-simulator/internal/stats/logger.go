@@ -93,6 +93,12 @@ func (l *CSVLogger) Start(ctx context.Context) {
 	}()
 }
 
+// StatsChan udostępnia kanał wejściowy loggera - alternatywa kanałowa dla LogState.
+// Hub używa go do wysyłania statystyk metodą non-blocking (przez select-default).
+func (l *CSVLogger) StatsChan() chan<- SystemStats {
+	return l.statsChan
+}
+
 // LogState realizuje bezblokowe wysyłanie statystyk do wewnętrznego kanału.
 func (l *CSVLogger) LogState(stats interface{}) {
 	if s, ok := stats.(SystemStats); ok {

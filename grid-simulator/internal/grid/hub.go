@@ -11,12 +11,26 @@ import (
 	"grid-simulator/internal/stats"
 )
 
-// Hub zarządza całą siecią energetyczną.
+// Hub zarządza całą siecią energetyczną wyłącznie poprzez kanały.
+// Nie trzyma już bezpośrednich wskaźników na podmioty (WindFarm, CoalPlant, Battery, Logger),
+// dzięki czemu każdy z nich jest niezależnym aktorem działającym we własnej gorutynie.
 type Hub struct {
-	windFarm    *energy.WindFarm
-	coalPlant   *energy.CoalPlant
-	battery     *energy.Battery
-	logger      core.DataLogger
+	// Kanały do OZE (WindFarm)
+	windGenChan     chan<- energy.GenRequest
+	windCurtailChan chan<- float64
+
+	// Kanały do elektrowni węglowej (CoalPlant)
+	coalGenChan   chan<- energy.GenRequest
+	coalStartChan chan<- struct{}
+	coalStateChan chan<- energy.StateRequest
+
+	// Kanał do magazynu energii (Battery)
+	batteryChan chan<- energy.BatteryRequest
+
+	// Kanał do loggera (fan-in statystyk)
+	loggerChan chan<- stats.SystemStats
+
+	// Kanały od konsumentów (Fan-In) i z broadcastera pogody
 	demandChan  chan core.DemandReport
 	weatherChan chan core.WeatherData
 
@@ -25,12 +39,20 @@ type Hub struct {
 	stepCount int
 }
 
-func NewHub(wf *energy.WindFarm, cp *energy.CoalPlant, b *energy.Battery, logger core.DataLogger) *Hub {
+// NewHub zbiera kanały aktorów i tworzy Hub. Od tego momentu Hub komunikuje się
+// z OZE/węglówką/baterią/loggerem wyłącznie przez kanały, nie wywołując ich metod bezpośrednio.
+func NewHub(wf *energy.WindFarm, cp *energy.CoalPlant, b *energy.Battery, logger *stats.CSVLogger) *Hub {
 	return &Hub{
-		windFarm:    wf,
-		coalPlant:   cp,
-		battery:     b,
-		logger:      logger,
+		windGenChan:     wf.GenChan(),
+		windCurtailChan: wf.CurtailChan(),
+
+		coalGenChan:   cp.GenChan(),
+		coalStartChan: cp.StartChan(),
+		coalStateChan: cp.StateChan(),
+
+		batteryChan: b.RequestChan(),
+		loggerChan:  logger.StatsChan(),
+
 		demandChan:  make(chan core.DemandReport, 100), // Fan-In agregator
 		weatherChan: make(chan core.WeatherData, 1),
 		consumers:   make(map[string]core.DemandReport),
@@ -71,29 +93,101 @@ func (h *Hub) Start(ctx context.Context, forecastChan <-chan core.ForecastReport
 		// Zdarzenie: Odbiór prognozy z Predictor-a [cite: 75]
 		case forecast := <-forecastChan:
 			// Jeśli trend silnie ujemny i węglówka wyłączona, zaczynamy rozgrzewanie [cite: 76, 118]
-			if forecast.TrendPercentage < -5.0 && h.coalPlant.GetState() == energy.StateOff {
-				h.coalPlant.Start(ctx)
+			state, ok := h.askCoalState(ctx)
+			if !ok {
+				return
+			}
+			if forecast.TrendPercentage < -5.0 && state == energy.StateOff {
+				// Sygnał startu - fire-and-forget, bufor=1, więc się nie zablokujemy
+				select {
+				case h.coalStartChan <- struct{}{}:
+				default:
+				}
 			}
 
 		// Zdarzenie: Ticker bilansujący (co 1h symulacji) [cite: 74]
 		case <-ticker.C:
 			h.stepCount++
-			h.balanceGrid(currentWeather)
+			h.balanceGrid(ctx, currentWeather)
 		}
 	}
 }
 
-func (h *Hub) balanceGrid(weather core.WeatherData) {
+// askCoalState wysyła synchroniczne zapytanie kanałowe o stan elektrowni węglowej.
+// Zwraca (stan, ok); ok=false oznacza, że ctx został anulowany — wywołujący powinien zakończyć pracę.
+func (h *Hub) askCoalState(ctx context.Context) (energy.PlantState, bool) {
+	reply := make(chan energy.PlantState, 1)
+	select {
+	case h.coalStateChan <- energy.StateRequest{Reply: reply}:
+	case <-ctx.Done():
+		return energy.StateOff, false
+	}
+	select {
+	case s := <-reply:
+		return s, true
+	case <-ctx.Done():
+		return energy.StateOff, false
+	}
+}
+
+// askGeneration odpytuje aktora źródła energii (OZE lub węglówki) o aktualną produkcję.
+func (h *Hub) askGeneration(ctx context.Context, genChan chan<- energy.GenRequest, weather core.WeatherData) (float64, bool) {
+	reply := make(chan float64, 1)
+	select {
+	case genChan <- energy.GenRequest{Weather: weather, Reply: reply}:
+	case <-ctx.Done():
+		return 0, false
+	}
+	select {
+	case v := <-reply:
+		return v, true
+	case <-ctx.Done():
+		return 0, false
+	}
+}
+
+// batteryOp wysyła pojedynczą operację do aktora baterii i zwraca wynik.
+func (h *Hub) batteryOp(ctx context.Context, op energy.BatteryOp, amount float64) (float64, bool) {
+	reply := make(chan float64, 1)
+	select {
+	case h.batteryChan <- energy.BatteryRequest{Op: op, Amount: amount, Reply: reply}:
+	case <-ctx.Done():
+		return 0, false
+	}
+	select {
+	case v := <-reply:
+		return v, true
+	case <-ctx.Done():
+		return 0, false
+	}
+}
+
+// sendCurtail wysyła sygnał curtailment do WindFarm nieblokująco i bezpiecznie wobec shutdownu.
+func (h *Hub) sendCurtail(ctx context.Context, limit float64) {
+	select {
+	case h.windCurtailChan <- limit:
+	case <-ctx.Done():
+	default:
+		// Bufor zajęty — porzucamy sygnał; kolejny tick i tak ustawi limit.
+	}
+}
+
+func (h *Hub) balanceGrid(ctx context.Context, weather core.WeatherData) {
 	// 1. Obliczenie całkowitego popytu
 	totalDemand := 0.0
 	for _, req := range h.consumers {
 		totalDemand += req.PDemand
 	}
 
-	// 2. Obliczenie aktualnej produkcji
-	windPower := h.windFarm.Generate(weather)
-	// windPower := 0.0 // TEST: Brak produkcji OZE na start (np. brak wiatru)
-	coalPower := h.coalPlant.Generate(weather)
+	// 2. Obliczenie aktualnej produkcji - przez kanały aktorów
+	windPower, ok := h.askGeneration(ctx, h.windGenChan, weather)
+	if !ok {
+		return
+	}
+	coalPower, ok := h.askGeneration(ctx, h.coalGenChan, weather)
+	if !ok {
+		return
+	}
 	totalProduction := windPower + coalPower
 
 	balance := totalProduction - totalDemand
@@ -101,15 +195,19 @@ func (h *Hub) balanceGrid(weather core.WeatherData) {
 
 	// 3. Zarządzanie ESS i Bilansowanie [cite: 78, 99]
 	if balance > 0 {
-		// Nadwyżka: Ładujemy baterie
-		stored := h.battery.Charge(balance)
+		// Nadwyżka: Ładujemy baterie przez kanał baterii
+		stored, ok := h.batteryOp(ctx, energy.OpCharge, balance)
+		if !ok {
+			return
+		}
 		remainingSurplus := balance - stored
 
 		if remainingSurplus > 0 {
 			// Bateria pełna, mamy wciąż nadwyżkę -> Ograniczamy OZE (Curtailment) [cite: 78, 136]
-			h.windFarm.SetCurtailment(totalDemand + stored - coalPower)
+			// Limit = demand - coal (bateria pełna, nie może wchłonąć więcej)
+			h.sendCurtail(ctx, totalDemand-coalPower)
 		} else {
-			h.windFarm.SetCurtailment(-1) // Zdejmujemy ewentualne limity
+			h.sendCurtail(ctx, -1) // Zdejmujemy ewentualne limity
 		}
 
 		// Obsługa konsumentów (wszyscy dostają 100%)
@@ -119,9 +217,12 @@ func (h *Hub) balanceGrid(weather core.WeatherData) {
 
 	} else if balance < 0 {
 		// Niedobór: Odblokowujemy OZE i próbujemy użyć baterii
-		h.windFarm.SetCurtailment(-1)
+		h.sendCurtail(ctx, -1)
 		deficit := -balance
-		provided := h.battery.Discharge(deficit)
+		provided, ok := h.batteryOp(ctx, energy.OpDischarge, deficit)
+		if !ok {
+			return
+		}
 		remainingDeficit := deficit - provided
 
 		if remainingDeficit > 0 {
@@ -141,7 +242,12 @@ func (h *Hub) balanceGrid(weather core.WeatherData) {
 		}
 	}
 
-	// 4. Logowanie i Raportowanie
+	// 4. Logowanie i Raportowanie - SoC pobierany przez kanał baterii
+	soc, ok := h.batteryOp(ctx, energy.OpGetSoC, 0)
+	if !ok {
+		return
+	}
+
 	statsData := stats.SystemStats{
 		TimeStep:       h.stepCount,
 		WindSpeed:      weather.WindSpeed,
@@ -149,17 +255,21 @@ func (h *Hub) balanceGrid(weather core.WeatherData) {
 		RenewablePower: windPower,
 		CoalPower:      coalPower,
 		Demand:         totalDemand,
-		BatterySoC:     h.battery.GetSoC() * 100, // % SoC
+		BatterySoC:     soc * 100, // % SoC
 		SystemStatus:   systemStatus,
 	}
 
-	h.logger.LogState(statsData) // [cite: 106, 107]
+	// Logger przez kanał - non-blocking, by nie blokować pętli bilansu, gdy worker nie nadąża
+	select {
+	case h.loggerChan <- statsData:
+	default:
+	}
 
 	// Wyświetlanie raportu w konsoli co N kroków (np. co 12 godzin symulacji)
 	if h.stepCount%12 == 0 {
 		fmt.Printf("\n[Raport Krok %d]\n", h.stepCount)
 		fmt.Printf("[Pogoda] Wiatr: %.1f km/h | Słońce: %.1f%%\n", weather.WindSpeed, weather.Sun)
-		fmt.Printf("[Produkcja] OZE: %.1f MW | Konwencjonalna: %.1f MW | Baterie: %.1f%% (SoC)\n", windPower, coalPower, h.battery.GetSoC()*100)
+		fmt.Printf("[Produkcja] OZE: %.1f MW | Konwencjonalna: %.1f MW | Baterie: %.1f%% (SoC)\n", windPower, coalPower, soc*100)
 		actualBalance := totalProduction - totalDemand
 		fmt.Printf("[Sieć] Popyt: %.1f MW | Bilans: %.1f MW | Stan: [%s]\n", totalDemand, actualBalance, systemStatus)
 	}
@@ -172,9 +282,11 @@ func (h *Hub) executeLoadShedding(availablePower float64) {
 		consumers = append(consumers, req)
 	}
 
-	// Sortowanie po priorytecie: od najniższego (Residential=3) do najwyższego (Critical=1)
+	// Sortowanie rosnące po numerze priorytetu: Critical (1) -> Industrial (2) -> Residential (3).
+	// Alokujemy moc od początku listy, więc Critical obsługiwany jest pierwszy,
+	// a Residential (najniższy priorytet wg PDF) odpada jako pierwszy.
 	sort.Slice(consumers, func(i, j int) bool {
-		return consumers[i].Priority < consumers[j].Priority // < oznacza, że wartość 1 jest pierwsza
+		return consumers[i].Priority < consumers[j].Priority
 	})
 
 	remainingPower := availablePower

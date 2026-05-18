@@ -4,9 +4,9 @@ import "time"
 
 const (
 	// Skale czasowe
-	// WeatherStep = 5 * time.Millisecond   // ~5 minut czasu symulacji [cite: 11, 127]
-	WeatherStep = GridStep / 12          // ~8.33 ms realnego czasu = 5 minut symulacji
-	GridStep    = 100 * time.Millisecond // 1 godzina czasu symulacji [cite: 17, 127]
+	WeatherStep = 5 * time.Millisecond // ~5 minut czasu symulacji [cite: 11, 127]
+	// WeatherStep = GridStep / 12          // ~8.33 ms realnego czasu = 5 minut symulacji
+	GridStep = 100 * time.Millisecond // 1 godzina czasu symulacji [cite: 17, 127]
 
 	// Parametry buforowania i symulacji
 	WeatherPerGrid      = 12             // dokładnie 12 kroków [cite: 65, 128]
