@@ -3,25 +3,25 @@ package core
 import "context"
 
 type EnergySource interface {
-	// Definiuje podstawowe zachowanie źródła [cite: 33]
+	// Definiuje podstawowe zachowanie źródła
 	Generate(weather WeatherData) float64
 }
 
 type Predictor interface {
-	// Analizuje historyczne kroki pogodowe dla prognozy [cite: 34]
+	// Analizuje historyczne kroki pogodowe dla prognozy
 	Start(ctx context.Context, weatherChan <-chan WeatherData, forecastChan chan<- ForecastReport)
 }
 
 type Consumer interface {
-	// Cykl życia niezależnego konsumenta w pętli dla DemandReport [cite: 35, 82]
+	// Cykl życia niezależnego konsumenta w pętli dla DemandReport
 	Run(ctx context.Context, gridChan chan<- DemandReport)
 }
 
 type EnergyStorage interface {
-	// Metody dla ESS definiujące manipulację zasobem bateryjnym [cite: 38]
+	// Metody dla ESS definiujące manipulację zasobem bateryjnym
 	Charge(amount float64) float64
 	Discharge(amount float64) float64
-	GetSoC() float64 // Pobór State of Charge 0.0 - 1.0 [cite: 6]
+	GetSoC() float64 // Pobór State of Charge 0.0 - 1.0
 }
 
 type WeatherProvider interface {
@@ -30,7 +30,7 @@ type WeatherProvider interface {
 }
 
 type DataLogger interface {
-	// Pozwala na zrzut metryk lub wymuszenie Flush przed zamknięciem [cite: 41, 109]
+	// Pozwala na zrzut metryk lub wymuszenie Flush przed zamknięciem
 	LogState(stats interface{})
 	Flush() error
 }

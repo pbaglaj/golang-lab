@@ -37,13 +37,13 @@ func (b *Broadcaster) Broadcast(data core.WeatherData) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	// Rozgłaszanie danych z użyciem instrukcji select i default [cite: 51]
+	// Rozgłaszanie danych z użyciem instrukcji select i default
 	for _, ch := range b.subscribers {
 		select {
 		case ch <- data:
-			// Paczka wysłana pomyślnie [cite: 56]
+			// Paczka wysłana pomyślnie
 		default:
-			// Subskrybent zajęty - porzucamy paczkę, aby nie blokować sieci [cite: 52, 57, 59]
+			// Subskrybent zajęty - porzucamy paczkę, aby nie blokować sieci
 		}
 	}
 }
@@ -63,7 +63,7 @@ func NewStation(b *Broadcaster) *Station {
 	}
 }
 
-// Start uruchamia gorutynę stacji pogodowej na skali WeatherStep[cite: 45].
+// Start uruchamia gorutynę stacji pogodowej na skali WeatherStep
 func (s *Station) Start(ctx context.Context, _ chan<- core.WeatherData) {
 	ticker := time.NewTicker(core.WeatherStep)
 	defer ticker.Stop()
@@ -76,7 +76,7 @@ func (s *Station) Start(ctx context.Context, _ chan<- core.WeatherData) {
 		case <-ctx.Done():
 			return // Zakończenie pracy przy graceful shutdown
 		case <-ticker.C:
-			// Generowanie płynnych zmian wg wzoru: Vt+1 = Vt + random(-1, 1) [cite: 47, 48]
+			// Generowanie płynnych zmian wg wzoru: Vt+1 = Vt + random(-1, 1)
 			windChange := (r.Float64() * 2) - 1 // Losuje z przedziału [-1.0, 1.0)
 			sunChange := (r.Float64() * 2) - 1
 
@@ -93,13 +93,13 @@ func (s *Station) Start(ctx context.Context, _ chan<- core.WeatherData) {
 				s.sun = 100
 			}
 
-			// Pakujemy dane [cite: 50]
+			// Pakujemy dane
 			data := core.WeatherData{
 				WindSpeed: s.wind,
 				Sun:       s.sun,
 			}
 
-			// Wysyłamy do Broadcastera, który przekaże je dalej [cite: 50]
+			// Wysyłamy do Broadcastera, który przekaże je dalej
 			s.broadcaster.Broadcast(data)
 		}
 	}

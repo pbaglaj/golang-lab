@@ -37,7 +37,7 @@ func (p *GridPredictor) Start(ctx context.Context, weatherChan <-chan core.Weath
 			// 1. Zarządzanie buforem - dodajemy najnowszy odczyt
 			p.buffer = append(p.buffer, weatherData)
 
-			// 2. Jeśli przekraczamy rozmiar (np. N=12), usuwamy najstarszy element [cite: 64, 65]
+			// 2. Jeśli przekraczamy rozmiar (np. N=12), usuwamy najstarszy element
 			if len(p.buffer) > p.bufferSize {
 				p.buffer = p.buffer[1:]
 			}
@@ -48,7 +48,7 @@ func (p *GridPredictor) Start(ctx context.Context, weatherChan <-chan core.Weath
 			if samplesCollected >= core.WeatherPerGrid && len(p.buffer) >= 2 {
 				samplesCollected = 0 // Resetujemy licznik do kolejnej godziny
 
-				// 4. Ekstrapolacja trendu na podstawie zebranych punktów pomiarowych [cite: 67, 69]
+				// 4. Ekstrapolacja trendu na podstawie zebranych punktów pomiarowych
 				oldest := p.buffer[0]
 				newest := p.buffer[len(p.buffer)-1]
 
@@ -59,13 +59,13 @@ func (p *GridPredictor) Start(ctx context.Context, weatherChan <-chan core.Weath
 					trendPercentage = ((newest.WindSpeed - oldest.WindSpeed) / oldest.WindSpeed) * 100.0
 				}
 
-				// 5. Budujemy raport prognozy na X kroków w przód (ForecastHorizon) [cite: 25]
+				// 5. Budujemy raport prognozy na X kroków w przód (ForecastHorizon)
 				report := core.ForecastReport{
 					TrendPercentage: trendPercentage,
 					StepsAhead:      core.ForecastHorizon,
 				}
 
-				// 6. Wysyłamy prognozę dedykowanym, oddzielonym kanałem [cite: 70]
+				// 6. Wysyłamy prognozę dedykowanym, oddzielonym kanałem
 				// Używamy select + default, żeby wolny GridHub nie zablokował Predictora
 				select {
 				case forecastChan <- report:

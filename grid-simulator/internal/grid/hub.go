@@ -12,8 +12,6 @@ import (
 )
 
 // Hub zarządza całą siecią energetyczną wyłącznie poprzez kanały.
-// Nie trzyma już bezpośrednich wskaźników na podmioty (WindFarm, CoalPlant, Battery, Logger),
-// dzięki czemu każdy z nich jest niezależnym aktorem działającym we własnej gorutynie.
 type Hub struct {
 	// Kanały do OZE (WindFarm)
 	windGenChan     chan<- energy.GenRequest
@@ -85,14 +83,14 @@ func (h *Hub) Start(ctx context.Context, forecastChan <-chan core.ForecastReport
 		case weather := <-h.weatherChan:
 			currentWeather = weather
 
-		// Zdarzenie: Odbiór zgłoszenia od konsumenta (Fan-In) [cite: 96]
+		// Zdarzenie: Odbiór zgłoszenia od konsumenta (Fan-In)
 		case req := <-h.demandChan:
-			// Dynamiczna rejestracja lub aktualizacja [cite: 97]
+			// Dynamiczna rejestracja lub aktualizacja
 			h.consumers[req.ID] = req
 
-		// Zdarzenie: Odbiór prognozy z Predictor-a [cite: 75]
+		// Zdarzenie: Odbiór prognozy z Predictor-a
 		case forecast := <-forecastChan:
-			// Jeśli trend silnie ujemny i węglówka wyłączona, zaczynamy rozgrzewanie [cite: 76, 118]
+			// Jeśli trend silnie ujemny i węglówka wyłączona, zaczynamy rozgrzewanie
 			state, ok := h.askCoalState(ctx)
 			if !ok {
 				return
@@ -105,7 +103,7 @@ func (h *Hub) Start(ctx context.Context, forecastChan <-chan core.ForecastReport
 				}
 			}
 
-		// Zdarzenie: Ticker bilansujący (co 1h symulacji) [cite: 74]
+		// Zdarzenie: Ticker bilansujący (co 1h symulacji)
 		case <-ticker.C:
 			h.stepCount++
 			h.balanceGrid(ctx, currentWeather)
@@ -193,7 +191,7 @@ func (h *Hub) balanceGrid(ctx context.Context, weather core.WeatherData) {
 	balance := totalProduction - totalDemand
 	systemStatus := "STABLE"
 
-	// 3. Zarządzanie ESS i Bilansowanie [cite: 78, 99]
+	// 3. Zarządzanie ESS i Bilansowanie
 	if balance > 0 {
 		// Nadwyżka: Ładujemy baterie przez kanał baterii
 		stored, ok := h.batteryOp(ctx, energy.OpCharge, balance)
@@ -203,7 +201,7 @@ func (h *Hub) balanceGrid(ctx context.Context, weather core.WeatherData) {
 		remainingSurplus := balance - stored
 
 		if remainingSurplus > 0 {
-			// Bateria pełna, mamy wciąż nadwyżkę -> Ograniczamy OZE (Curtailment) [cite: 78, 136]
+			// Bateria pełna, mamy wciąż nadwyżkę -> Ograniczamy OZE (Curtailment)
 			// Limit = demand - coal (bateria pełna, nie może wchłonąć więcej)
 			h.sendCurtail(ctx, totalDemand-coalPower)
 		} else {
@@ -226,7 +224,7 @@ func (h *Hub) balanceGrid(ctx context.Context, weather core.WeatherData) {
 		remainingDeficit := deficit - provided
 
 		if remainingDeficit > 0 {
-			// Bateria pusta, wciąż brakuje prądu -> Load Shedding [cite: 79, 98]
+			// Bateria pusta, wciąż brakuje prądu -> Load Shedding
 			systemStatus = "CRITICAL"
 			h.executeLoadShedding(totalProduction + provided)
 		} else {
@@ -297,8 +295,8 @@ func (h *Hub) executeLoadShedding(availablePower float64) {
 			remainingPower -= req.PDemand
 			req.ReplyChan <- core.SupplyStatus{AllocatedMW: req.PDemand, Reason: "OK"}
 		} else {
-			// Brak prądu (lub częściowy brak), odłączamy konsumenta [cite: 101]
-			req.ReplyChan <- core.SupplyStatus{AllocatedMW: 0, Reason: "LoadShed"} // [cite:102]
+			// Brak prądu (lub częściowy brak), odłączamy konsumenta
+			req.ReplyChan <- core.SupplyStatus{AllocatedMW: 0, Reason: "LoadShed"}
 		}
 	}
 }
