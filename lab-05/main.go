@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("GetItems: %v", err)
 	}
-	fmt.Println("GET /items zwróciło:")
+	fmt.Println("GET /items zwróciło:", items)
 	for _, it := range items {
 		fmt.Printf("  #%d %s — %s\n", it.ID, it.Name, it.Description)
 	}
@@ -43,6 +43,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("CreateItem: %v", err)
 	}
+	fmt.Println("POST /items zwróciło:", created)
 	fmt.Printf("POST /items utworzyło: #%d %s — %s\n",
 		created.ID, created.Name, created.Description)
 }
